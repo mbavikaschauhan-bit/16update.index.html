@@ -8076,7 +8076,12 @@
         };
         const renderProfilePage = (profileData) => {
             try {
-                if (!profileData) return;
+                console.log('Rendering profile page with data:', profileData);
+                
+                if (!profileData) {
+                    console.log('No profile data provided');
+                    return;
+                }
                 
                 // Update profile form fields
                 const nameField = document.getElementById('profile-name');
@@ -8089,6 +8094,8 @@
                 if (phoneField) phoneField.value = profileData.phone || '';
                 if (cityField) cityField.value = profileData.city || '';
                 
+                console.log('Form fields updated');
+                
                 // Update account information
                 const memberSinceField = document.getElementById('profile-member-since');
                 if (memberSinceField && profileData.created_at) {
@@ -8098,6 +8105,13 @@
                         month: 'long',
                         day: 'numeric'
                     });
+                    console.log('Member since date set:', signupDate.toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric'
+                    }));
+                } else {
+                    console.log('Member since field not found or no created_at data');
                 }
                 
                 // Update subscription information
@@ -8112,6 +8126,9 @@
                         month: 'long',
                         day: 'numeric'
                     });
+                    console.log('Subscription start date set');
+                } else {
+                    console.log('Subscription start field not found or no subscription_start_date data');
                 }
                 
                 if (subscriptionEndField && profileData.subscription_ends_at) {
@@ -8121,10 +8138,16 @@
                         month: 'long',
                         day: 'numeric'
                     });
+                    console.log('Subscription end date set');
+                } else {
+                    console.log('Subscription end field not found or no subscription_ends_at data');
                 }
                 
                 if (planTypeField && profileData.plan_type) {
                     planTypeField.textContent = profileData.plan_type.charAt(0).toUpperCase() + profileData.plan_type.slice(1);
+                    console.log('Plan type set:', profileData.plan_type);
+                } else {
+                    console.log('Plan type field not found or no plan_type data');
                 }
                 
             } catch (e) {
@@ -8141,6 +8164,13 @@
             const spinner = submitButton.querySelector('.spinner');
             
             try {
+                // Validate user authentication
+                if (!appState.user || !appState.user.id) {
+                    throw new Error('User not authenticated');
+                }
+                
+                console.log('Profile form submission started for user:', appState.user.id);
+                
                 // Show loading state
                 btnText.textContent = 'Saving...';
                 spinner.classList.remove('hidden');
@@ -8154,15 +8184,41 @@
                     city: formData.get('city')
                 };
                 
+                console.log('Profile data to save:', profileData);
+                
                 // Update profile in Supabase
-                const { error } = await supabase
+                const { data, error } = await supabase
                     .from('profiles')
                     .update(profileData)
-                    .eq('id', appState.user.id);
+                    .eq('id', appState.user.id)
+                    .select();
                 
                 if (error) {
-                    throw error;
+                    console.error('Supabase profile update error:', error);
+                    
+                    // If profile doesn't exist, create one
+                    if (error.code === 'PGRST116') {
+                        console.log('Profile not found during update, creating new profile');
+                        await createUserProfile();
+                        
+                        // Try updating again
+                        const { data: updateData, error: updateError } = await supabase
+                            .from('profiles')
+                            .update(profileData)
+                            .eq('id', appState.user.id)
+                            .select();
+                        
+                        if (updateError) {
+                            throw updateError;
+                        }
+                        
+                        console.log('Profile updated successfully after creation:', updateData);
+                    } else {
+                        throw error;
+                    }
                 }
+                
+                console.log('Profile updated successfully:', data);
                 
                 // Show success message
                 btnText.textContent = 'Saved!';
@@ -8247,6 +8303,14 @@
         // Load profile data from Supabase
         const loadProfileData = async () => {
             try {
+                // Validate user authentication
+                if (!appState.user || !appState.user.id) {
+                    console.error('User not authenticated, cannot load profile data');
+                    return;
+                }
+                
+                console.log('Loading profile data for user:', appState.user.id);
+                
                 const { data: profileData, error } = await supabase
                     .from('profiles')
                     .select('*')
@@ -8255,14 +8319,66 @@
                 
                 if (error) {
                     console.error('Error loading profile data:', error);
+                    
+                    // If profile doesn't exist, create one
+                    if (error.code === 'PGRST116') {
+                        console.log('Profile not found, creating new profile for user');
+                        await createUserProfile();
+                        return;
+                    }
                     return;
                 }
                 
+                console.log('Profile data loaded:', profileData);
+                
                 if (profileData) {
                     renderProfilePage(profileData);
+                } else {
+                    console.log('No profile data found for user');
                 }
             } catch (error) {
                 console.error('Error loading profile data:', error);
+            }
+        };
+
+        // Create user profile if it doesn't exist
+        const createUserProfile = async () => {
+            try {
+                console.log('Creating new profile for user:', appState.user.id);
+                
+                const newProfile = {
+                    id: appState.user.id,
+                    name: appState.user.displayName || appState.user.email || '',
+                    email: appState.user.email || '',
+                    phone: '',
+                    city: '',
+                    created_at: new Date().toISOString(),
+                    subscription_status: 'active',
+                    plan_type: 'basic',
+                    subscription_ends_at: null,
+                    subscription_start_date: new Date().toISOString()
+                };
+                
+                console.log('Creating profile with data:', newProfile);
+                
+                const { data, error } = await supabase
+                    .from('profiles')
+                    .insert(newProfile)
+                    .select()
+                    .single();
+                
+                if (error) {
+                    console.error('Error creating profile:', error);
+                    return;
+                }
+                
+                console.log('Profile created successfully:', data);
+                
+                // Render the newly created profile
+                renderProfilePage(data);
+                
+            } catch (error) {
+                console.error('Error creating profile:', error);
             }
         };
         // Helper function to calculate weekdays between two dates (excluding weekends)
